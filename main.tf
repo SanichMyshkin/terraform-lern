@@ -1,28 +1,66 @@
-// main.tf - имя файла выбрано произвольно, важно только расширение
 terraform {
   required_providers {
     yandex = {
-      source = "yandex-cloud/yandex"
+      source  = "yandex-cloud/yandex"
     }
   }
   required_version = ">= 0.13"
 }
 
-// Terraform должен знать ключ, для выполнения команд по API
-
-// Определение переменной, которую нужно будет задать
-variable "yc_token" {}
-
-provider "yandex" {
-  zone = "ru-central1-a"
-  token = var.yc_token
+// Переменные для токена и идентификатора папки
+variable "yc_token" {
+  description = "Yandex Cloud API token"
+  type        = string
 }
 
+variable "yc_folder_id" {
+  description = "Yandex Cloud Folder ID"
+  type        = string
+}
+
+// Провайдер Yandex Cloud
+provider "yandex" {
+  token     = var.yc_token
+  folder_id = var.yc_folder_id
+  zone      = "ru-central1-a"
+}
+
+// Создание сети
+resource "yandex_vpc_network" "default" {
+  name      = "test-network"
+  folder_id = var.yc_folder_id
+}
+
+// Создание подсети
+resource "yandex_vpc_subnet" "default" {
+  name           = "test-subnet"
+  zone           = "ru-central1-a"
+  network_id     = yandex_vpc_network.default.id
+  v4_cidr_blocks = ["10.5.0.0/24"]
+  folder_id      = var.yc_folder_id
+}
+
+// Создание диска
+resource "yandex_compute_disk" "default" {
+  name      = "test-disk"
+  type      = "network-ssd"
+  zone      = "ru-central1-a"
+  folder_id = var.yc_folder_id
+
+  // Задайте ID образа операционной системы
+  image_id = "fd83s8u085j3mq231ago"
+
+  labels = {
+    environment = "test"
+  }
+}
+
+// Создание виртуальной машины
 resource "yandex_compute_instance" "default" {
-  name        = "test"
+  name        = "test-vm"
   platform_id = "standard-v1"
   zone        = "ru-central1-a"
-  folder_id   = "b1gen5r5r3g4113g6vt8"
+  folder_id   = var.yc_folder_id
 
   resources {
     cores  = 2
@@ -30,35 +68,18 @@ resource "yandex_compute_instance" "default" {
   }
 
   boot_disk {
+    // Используем диск, созданный ранее
     disk_id = yandex_compute_disk.default.id
   }
 
   network_interface {
-    subnet_id = "${yandex_vpc_subnet.default.id}"
+    subnet_id = yandex_vpc_subnet.default.id
+    nat       = true // Подключаем NAT для доступа в интернет
   }
 
   metadata = {
-    ssh-keys = "ubuntu:${file("~/.ssh/id_rsa.pub")}"
+    ssh-keys = "ubuntu:${file("~/.ssh/id_rsa.pub")}" // Подключение SSH-ключа
   }
-}
-
-resource "yandex_vpc_network" "default" {
-  folder_id = "b1gen5r5r3g4113g6vt8"
-}
-
-resource "yandex_vpc_subnet" "default" {
-  zone           = "ru-central1-a"
-  network_id     = "${yandex_vpc_network.default.id}"
-  v4_cidr_blocks = ["10.5.0.0/24"]
-  folder_id      = "b1gen5r5r3g4113g6vt8"
-}
-
-resource "yandex_compute_disk" "default" {
-  name     = "disk-name"
-  type     = "network-ssd"
-  zone     = "ru-central1-a"
-  image_id = "fd83s8u085j3mq231ago" // идентификатор образа Ubuntu
-  folder_id = "b1gen5r5r3g4113g6vt8"
 
   labels = {
     environment = "test"
